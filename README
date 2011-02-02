@@ -1,0 +1,19 @@
+Introduction
+=============
+
+hwdb-opendpi is a project that tries to integrate opendpi library in the hwdb streaming 
+database infrustructure. 
+
+Usage
+=====
+
+./hwdb_opendpi [-i dev_name] [-r pcap_file]
+
+
+Upgradding opendpi code
+=======================
+
+cd opendpi
+git svn rebase
+git push
+
