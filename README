@@ -4,6 +4,16 @@ Introduction
 hwdb-opendpi is a project that tries to integrate opendpi library in the hwdb streaming 
 database infrustructure. 
 
+Build
+=====
+
+cd opendpi/
+./autgen.sh
+./configure
+make
+cd ..
+make
+
 Usage
 =====
 
