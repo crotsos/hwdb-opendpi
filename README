@@ -11,7 +11,7 @@ cd opendpi/
 ./autgen.sh
 ./configure
 make
-cd ..
+cd ../libhashish
 make
 
 Usage
