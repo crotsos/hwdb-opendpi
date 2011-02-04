@@ -1,0 +1,16 @@
+set terminal postscript eps enhanced color "Times" 30
+set palette rgbformulae 21,22,23
+set size square
+set output "avalanche.eps"
+set xrange [0:31]
+set yrange [0:31]
+set pm3d map
+set size 2
+splot "avalanche.data" title "Jenkins Avalanche Behavior"
+!epstopdf --outfile=avalanche.pdf avalanche.eps
+!rm -rf avalanche.eps
+
+set term x11
+set size 1
+replot
+pause 10

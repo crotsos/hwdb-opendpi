@@ -14,6 +14,8 @@
 #include <linux/udp.h>
 #include <linux/tcp.h>
 
+#include <libhashish.h>
+
 #include <ipq_api.h>
 #include "ipq_api.h"
 #include "config.h"
@@ -36,15 +38,18 @@ struct osdpi_id {
 
 // flow tracking
 struct osdpi_flow {
-	u32 lower_ip;
-	u32 upper_ip;
-	u16 lower_port;
-	u16 upper_port;
-	u8 protocol;
-	struct ipoque_flow_struct *ipoque_flow;
-
-	// result only, not used for flow identification
-	u32 detected_protocol;
+  u32 lower_ip;
+  u32 upper_ip;
+  u16 lower_port;
+  u16 upper_port;
+  u8 protocol;
+  uint32_t byte_count;
+  uint32_t pkt_count;
+  uint32_t last_pkt;
+  struct ipoque_flow_struct *ipoque_flow;
+  
+  // result only, not used for flow identification
+  u32 detected_protocol;
 };
 
 static const char *protocol_long_str[] = { IPOQUE_PROTOCOL_LONG_STRING };
@@ -65,19 +70,24 @@ struct str_cfg {
   struct ipoque_detection_module_struct *ipoque_struct;
 
   // results
-  uint64_t raw_packet_count;
-  uint64_t ip_packet_count;
-  uint64_t total_bytes;
-  uint64_t protocol_counter[IPOQUE_MAX_SUPPORTED_PROTOCOLS + 1];
-  uint64_t protocol_counter_bytes[IPOQUE_MAX_SUPPORTED_PROTOCOLS + 1];
+/*   uint64_t raw_packet_count; */
+/*   uint64_t ip_packet_count; */
+/*   uint64_t total_bytes; */
+/*   uint64_t protocol_counter[IPOQUE_MAX_SUPPORTED_PROTOCOLS + 1]; */
+/*   uint64_t protocol_counter_bytes[IPOQUE_MAX_SUPPORTED_PROTOCOLS + 1]; */
   
-  struct osdpi_id *osdpi_ids;
-  uint32_t osdpi_id_count;
-  uint32_t size_id_struct;
+/*   struct osdpi_id *osdpi_ids; */
+/*   uint32_t osdpi_id_count; */
+/*   uint32_t size_id_struct; */
 
-  struct osdpi_flow *osdpi_flows;
-  uint32_t size_flow_struct;
-  uint32_t osdpi_flow_count;
+/*   struct osdpi_flow *osdpi_flows; */
+/*   uint32_t size_flow_struct; */
+/*   uint32_t osdpi_flow_count; */
+
+  ///a hast structure to store state
+  hi_handle_t *hi_handle_ip;
+  hi_handle_t *hi_handle_flows;
+
 };
 
 struct str_cfg obj_cfg;
@@ -129,105 +139,106 @@ extract_headers(struct packet_header *hdr, uint8_t *data, int data_len) {
   return 1;
 }
 
+static void 
+*get_id(const u8 * ip) {
+  uint32_t i, res;
+  char str_ip[20];
+  struct in_addr addr;
+  struct osdpi_id *data;
 
-static void *get_id(const u8 * ip) {
-  uint32_t i;
-  for (i = 0; i < obj_cfg.osdpi_id_count; i++) {
-    if (memcmp(obj_cfg.osdpi_ids[i].ip, ip, sizeof(u8) * 4) == 0) {
-      return obj_cfg.osdpi_ids[i].ipoque_id;
-    }
-  }
-  if (obj_cfg.osdpi_id_count == MAX_OSDPI_IDS) {
-    printf("ERROR: maximum unique id count (%u) has been exceeded\n", MAX_OSDPI_IDS);
-    exit(-1);
+  addr.s_addr = ip;
+
+  sprintf(str_ip, "%s", inet_ntoa(addr));
+  res = hi_get_str(obj_cfg.hi_handle_ip, str_ip, (void *)&data);
+
+  //if state found retrurn object
+  if(res == HI_ERR_SUCCESS) {
+    return data->ipoque_id;
   } else {
-    struct ipoque_id_struct *ipoque_id;
-    memcpy(obj_cfg.osdpi_ids[obj_cfg.osdpi_id_count].ip, ip, sizeof(u8) * 4);
-    ipoque_id = obj_cfg.osdpi_ids[obj_cfg.osdpi_id_count].ipoque_id;
-
-    obj_cfg.osdpi_id_count += 1;
-    return ipoque_id;
+    //if file not found create new state
+    data = malloc(sizeof(struct osdpi_id));
+    if(data == NULL) {
+      perror("malloc osdpi_id");
+      exit(1);
+    }
+    memcpy(data->ip, ip, 4);
+    data->ipoque_id = calloc(1, ipoque_detection_get_sizeof_ipoque_id_struct());
+    if(data->ipoque_id == NULL) {
+      perror("malloc osdpi_id->ipoque_id");
+      exit(1);
+    }
+    hi_insert_str(obj_cfg.hi_handle_ip, str_ip, data);
+    return  data->ipoque_id;
   }
 }
 
-static struct osdpi_flow *get_osdpi_flow(const struct iphdr *iph, u16 ipsize)
+struct osdpi_flow *
+get_osdpi_flow(const struct packet_header *hdr, 
+					 u16 ipsize, uint32_t time)
 {
-  u32 i;
-  u16 l4_packet_len;
-  struct tcphdr *tcph = NULL;
-  struct udphdr *udph = NULL;
+  int res;
+  char lower_ip[20], upper_ip[20];
+  struct in_addr addr;
+  u16 lower_port, upper_port;
+  struct osdpi_flow *data;
 
-  u32 lower_ip;
-  u32 upper_ip;
-  u16 lower_port;
-  u16 upper_port;
+  //XXX.XXX.XXX.XXX:XXXXX-XXX.XXX.XXX.XXX:XXXXX-XXX
+  char flow_key[50];
 
-  if (ipsize < 20)
-    return NULL;
-
-  if ((iph->ihl * 4) > ipsize || ipsize < ntohs(iph->tot_len)
-      || (iph->frag_off & htons(0x1FFF)) != 0)
-    return NULL;
-
-  l4_packet_len = ntohs(iph->tot_len) - (iph->ihl * 4);
-
-  if (iph->saddr < iph->daddr) {
-    lower_ip = iph->saddr;
-    upper_ip = iph->daddr;
+  if (hdr->ip->saddr < hdr->ip->daddr) {
+    addr.s_addr = hdr->ip->saddr;
+    sprintf(lower_ip, "%s", inet_ntoa(addr));
+    addr.s_addr = hdr->ip->daddr;
+    sprintf(upper_ip, "%s", inet_ntoa(addr));
   } else {
-    lower_ip = iph->daddr;
-    upper_ip = iph->saddr;
+    addr.s_addr = hdr->ip->saddr;
+    sprintf(upper_ip, "%s", inet_ntoa(addr));
+    addr.s_addr = hdr->ip->daddr;
+    sprintf(lower_ip, "%s", inet_ntoa(addr));
   }
-
-  if (iph->protocol == 6 && l4_packet_len >= 20) {
-    // tcp
-    tcph = (struct tcphdr *) ((u8 *) iph + iph->ihl * 4);
-    if (iph->saddr < iph->daddr) {
-      lower_port = tcph->source;
-      upper_port = tcph->dest;
-    } else {
-      lower_port = tcph->dest;
-      upper_port = tcph->source;
-    }
-  } else if (iph->protocol == 17 && l4_packet_len >= 8) {
-    // udp
-    udph = (struct udphdr *) ((u8 *) iph + iph->ihl * 4);
-    if (iph->saddr < iph->daddr) {
-      lower_port = udph->source;
-      upper_port = udph->dest;
-    } else {
-      lower_port = udph->dest;
-      upper_port = udph->source;
-    }
+  
+  if (hdr->ip->protocol == 6) { // tcp
+    if (hdr->ip->saddr < hdr->ip->daddr) 
+      snprintf(flow_key, 50, "%x:%05d-%x:%05d-TCP", lower_ip, ntohs(hdr->tcp->source),
+	       upper_ip, ntohs(hdr->tcp->dest));
+    else
+      snprintf(flow_key, 50, "%x:%05d-%x:%05d-TCP", lower_ip, ntohs(hdr->tcp->dest),
+	       upper_ip, ntohs(hdr->tcp->source));
+  } else if (hdr->ip->protocol == 17) {// udp
+    if (hdr->ip->saddr < hdr->ip->daddr) 
+      snprintf(flow_key, 50, "%x:%05d-%x:%05d-UDP", lower_ip, ntohs(hdr->tcp->source),
+	       upper_ip, ntohs(hdr->tcp->dest));
+    else
+      snprintf(flow_key, 50, "%x:%05d-%x:%05d-UDP", lower_ip, ntohs(hdr->tcp->dest),
+	       upper_ip, ntohs(hdr->tcp->source));
+    
+  } 
+  
+  res = hi_get_str(obj_cfg.hi_handle_ip, flow_key, (void **)&data);  
+  //if state found retrurn object
+  if(res == HI_ERR_SUCCESS) {
+    data->byte_count += ipsize;
+    data->pkt_count++;
+    data->last_pkt += time;
+    return data;
   } else {
-    // non tcp/udp protocols
-    lower_port = 0;
-    upper_port = 0;
-  }
-
-  for (i = 0; i < obj_cfg.osdpi_flow_count; i++) {
-    if (obj_cfg.osdpi_flows[i].protocol == iph->protocol &&
-	obj_cfg.osdpi_flows[i].lower_ip == lower_ip &&
-	obj_cfg.osdpi_flows[i].upper_ip == upper_ip &&
-	obj_cfg.osdpi_flows[i].lower_port == lower_port && 
-	obj_cfg.osdpi_flows[i].upper_port == upper_port) {
-      return &obj_cfg.osdpi_flows[i];
+    //if file not found create new state
+    data = malloc(sizeof(struct osdpi_flow));
+    if(data == NULL) {
+      perror("malloc osdpi_flow");
+      exit(1);
     }
-  }
-  if (obj_cfg.osdpi_flow_count == MAX_OSDPI_FLOWS) {
-    printf("ERROR: maximum flow count (%u) has been exceeded\n", MAX_OSDPI_FLOWS);
-    exit(-1);
-  } else {
-    struct osdpi_flow *flow;
-    obj_cfg.osdpi_flows[obj_cfg.osdpi_flow_count].protocol = iph->protocol;
-    obj_cfg.osdpi_flows[obj_cfg.osdpi_flow_count].lower_ip = lower_ip;
-    obj_cfg.osdpi_flows[obj_cfg.osdpi_flow_count].upper_ip = upper_ip;
-    obj_cfg.osdpi_flows[obj_cfg.osdpi_flow_count].lower_port = lower_port;
-    obj_cfg.osdpi_flows[obj_cfg.osdpi_flow_count].upper_port = upper_port;
-    flow = &obj_cfg.osdpi_flows[obj_cfg.osdpi_flow_count];
-
-    obj_cfg.osdpi_flow_count += 1;
-    return flow;
+    
+    data->byte_count = ipsize;
+    data->pkt_count = 1;
+    data->last_pkt = time;
+    data->ipoque_flow = calloc(1, ipoque_detection_get_sizeof_ipoque_flow_struct());
+    if(data->ipoque_flow == NULL) {
+      perror("malloc osdpi_id->ipoque_id");
+      exit(1);
+    }
+    hi_insert_str(obj_cfg.hi_handle_ip, flow_key, data);
+    return  data;
   }
 }
 
@@ -256,7 +267,7 @@ process_packet(u_char *args, const struct pcap_pkthdr* pkthdr, const u_char* pac
   src = get_id((u8 *) & hdr.ip->saddr);
   dst = get_id((u8 *) & hdr.ip->daddr);
 
-  flow = get_osdpi_flow(hdr.ip, pkthdr->caplen - ETHER_HDR_LEN);
+  flow = get_osdpi_flow(&hdr, pkthdr->caplen - ETHER_HDR_LEN, pkthdr->ts.tv_sec);
 
   if (flow != NULL) {
     ipq_flow = flow->ipoque_flow;
@@ -296,13 +307,9 @@ init_cfg() {
   strcpy(obj_cfg.dev_name, "eth0");
   strcpy(obj_cfg.pcap_filter, "udp or tcp");
   obj_cfg.ipoque_struct= NULL;
-  obj_cfg.raw_packet_count = 0;
-  obj_cfg.ip_packet_count = 0;
-  obj_cfg.total_bytes = 0;
-  obj_cfg.osdpi_id_count = 0;
-  obj_cfg.size_id_struct = 0;
-  obj_cfg.size_flow_struct = 0;
-  obj_cfg.osdpi_flow_count = 0;
+
+  hi_init_str(&obj_cfg.hi_handle_ip, 93563);
+  hi_init_str(&obj_cfg.hi_handle_flows, 93563);
 };
 
 /*
@@ -458,42 +465,6 @@ init() {
   // enable all protocols
   IPOQUE_BITMASK_SET_ALL(all);
   ipoque_set_protocol_detection_bitmask2(obj_cfg.ipoque_struct, &all);
-  
-  // allocate memory for id and flow tracking
-  size_id_struct = ipoque_detection_get_sizeof_ipoque_id_struct();
-  size_flow_struct = ipoque_detection_get_sizeof_ipoque_flow_struct();
-  
-  obj_cfg.osdpi_ids = malloc(MAX_OSDPI_IDS * sizeof(struct osdpi_id));
-  if (obj_cfg.osdpi_ids == NULL) {
-    printf("ERROR: malloc for osdpi_ids failed\n");
-    exit(-1);
-  }
-  for (i = 0; i < MAX_OSDPI_IDS; i++) {
-    memset(&obj_cfg.osdpi_ids[i], 0, sizeof(struct osdpi_id));
-    obj_cfg.osdpi_ids[i].ipoque_id = calloc(1, size_id_struct);
-    if (obj_cfg.osdpi_ids[i].ipoque_id == NULL) {
-      printf("ERROR: malloc for ipoque_id_struct failed\n");
-      exit(-1);
-    }
-  }
-  
-  obj_cfg.osdpi_flows = malloc(MAX_OSDPI_FLOWS * sizeof(struct osdpi_flow));
-  if (obj_cfg.osdpi_flows == NULL) {
-    printf("ERROR: malloc for osdpi_flows failed\n");
-    exit(-1);
-  }
-  for (i = 0; i < MAX_OSDPI_FLOWS; i++) {
-    memset(&obj_cfg.osdpi_flows[i], 0, sizeof(struct osdpi_flow));
-    obj_cfg.osdpi_flows[i].ipoque_flow = calloc(1, size_flow_struct);
-    if (obj_cfg.osdpi_flows[i].ipoque_flow == NULL) {
-      printf("ERROR: malloc for ipoque_flow_struct failed\n");
-      exit(-1);
-    }
-  }
-  
-  // clear memory for results
-  memset(obj_cfg.protocol_counter, 0, (IPOQUE_MAX_SUPPORTED_PROTOCOLS + 1) * sizeof(u64));
-  memset(obj_cfg.protocol_counter_bytes, 0, (IPOQUE_MAX_SUPPORTED_PROTOCOLS + 1) * sizeof(u64));
 }
 
 int
@@ -504,12 +475,13 @@ main(int argc, char *argv[]) {
   bpf_u_int32 netp;
   u_char* args = NULL;
   pthread_t thr;
+  int i;
+  char buf[100];
 
   // Initialize link accumulator.
   //  lt_init();
   parse_options(argc, argv);
   init();
-
 
   // and the thread that processes (inserts into hwdb) the accumulated results.
 /*   if (pthread_create(&thr, NULL, handler, NULL)) { */

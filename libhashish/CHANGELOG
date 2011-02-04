@@ -1,0 +1,33 @@
+LibHashIsh CHANGELOG
+==============================================================================
+
+Tue Aug 21 23:30:33 CEST 2007  Hagen Paul Pfeifer <hagen@jauu.net>
+
+	* add mutex support for thread clean processing
+
+Mon Aug 20 00:57:35 CEST 2007  Hagen Paul Pfeifer <hagen@jauu.net>
+
+	* add CHAINING_LIST_MTF chaining strategy 
+	* add new configure option to enable runtime
+	  performance checks - mainly to check some timing
+	  issues
+
+Thu May 31 21:43:53 CEST 2007  Hagen Paul Pfeifer <hagen@jauu.net>
+
+	* add CHAINING_ARRAY chaining strategie
+	* add a XMALLOC macro and xmalloc_align() function for allocation
+		of aligned memory
+
+Tue May  8 23:37:12 CEST 2007  Hagen Paul Pfeifer <hagen@jauu.net>
+
+	* add lhi_hash_elf hashing function
+	* add CHAINING_HASHLIST chaining strategie
+	* some small bugfixes
+
+
+Fri Mar 16 20:24:02 CEST 2007  Hagen Paul Pfeifer <hagen@jauu.net>
+
+	* Initial version
+
+
+/* vim:set ts=4 sw=4 sts=4 tw=78 ff=unix noet ft=changelog: */

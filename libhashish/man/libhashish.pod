@@ -1,0 +1,144 @@
+=head1 NAME
+
+libhashish - is a mighty and generic hash library
+
+=head1 SYNOPSIS
+    
+    #include <libhashish.h>
+
+    int main(void) {
+        hi_handle_t *hi_handle;
+        const char *key = "23";
+        const char *data = "data element";
+        const char *data_ptr;
+
+        /* initialize hashish handle */
+        hi_init_str(&hi_handle, 23);
+
+        /* insert an key/data pair */
+        ret = hi_insert_str(hi_handle, key, data);
+
+        /* search for a pair with a string key and store result */
+        hi_get_str(hi_handle, key, &data_ptr);
+
+        fprintf(stdout, "Key: %s Data: %s\n", key, data_ptr);
+
+        /* free the hashish handle */
+        hi_fini(hi_handle);
+
+        return 0;
+    }
+        
+
+    
+=head1 DESCRIPTION
+
+Libhashish is a mighty and generic hash library. It is a library and therefore
+easy to utilize the functionality and integration in your new or existing
+project. See the following list for some details:
+
+=over 4
+
+  o Build as an static or dynamic library (.a and .so)
+
+  o Build-in support for string and uint_{8,16,32} types
+    for keys and support for own complex key data types
+
+  o Dynamic or manual adjustable hashbucket size (reordering
+    if proportion entries/bucket_size is unfavorable)
+
+  o Thread clean - mutex locks support
+
+  o Bloom filter implementation
+
+  o Many built-in hashing algorithm 
+
+  o Support to use a rbtree instead of lists for buckets
+    (avoid worst case O(n) scenario)
+
+  o Makefile test target plus a benchmark application
+    for comparing the different hashing algorithm
+
+=back
+
+=head1 Interface and Library Function
+
+The following sections introduce the API of libhashish. The
+documentation is structured chronological, that means it is in the same
+chronological order as you expect it (the normal usage procedure).
+
+First the libhashish initializer are introduced, later the getter and
+setter[tm] functionality and last but not least the destructor functionality.
+
+=head2 Initializer (Constructors)
+
+     hi_init(hi_handle_t **handle, struct hi_init_set *init_set)
+
+Initialize the library, allocate hi_handle and set proper values for
+further processing steps. struct hi_init_set determine the core attributes
+of the hash algorithms. All modifiable attributes are stated and fixed there.
+handle is the returned and allocated hashish handle. init_set refers to the
+hashish attributes.
+
+struct hi_init_set can be altered by manually. But this is not the prefer
+method, there are accessors functionality available:
+
+        hi_set_zero(struct hi_init_set *)
+
+Reset the struct to a vanilla state. This functionality
+is highly recommended as the first call to struct hi_init_set after
+declaration.
+
+        hi_set_bucket(struct hi_init_set *, uint32_t size)
+          
+Determine the size of the hash table. The discussion if the 
+size should be a prime number depends on the particular algorithm.
+If you are not familiar with this topic pick out a prime number and
+if you know the maximum number of elements take this as the size
+argument.
+
+        hi_set_self_resizing(struct hi_init_set *, int choice)
+
+Determine if the underlying algorithm autonomously resize the
+bucket size if a pre-defined threshold is reached. The threshold depends 
+on the ratio of the table size and sum of filled buckets. The threshold is
+calculated at handle creation ( hi_init() ) and can be fixed by the user 
+via hi_set_resizing_thresh().
+
+
+        hi_set_hash_eng(struct hi_init_set *, enum hash_alg)
+
+Set the hash function for the primary hash function. See libhashish.h for
+an complete list of the supported algorithms.
+
+        hi_set_coll_eng(struct hi_init_set *, enum coll_alg)
+
+Dedicates the collision resolution algorithm. The standard scheme is a normal list.
+Then there are a bundle of other collision schemes: array, tree, ... See
+libhashish.h for a complete list (or use the Homepage - but the Header file match
+your current version best.
+
+        hi_set_cmp_func(struct hi_init_set, int (cmp*)(void *, void *))
+
+Set the compare function for the key. In a hash the data must be 
+distinguishably, like in normal set - no doublet. This function is called to
+ensure this. The called function must return 0 if the two keys are identically
+or -1 if small and 1 if larger. The latter differing is because of the tree
+based collision engine.
+        
+        hi_set_hash2_eng(struct hi_init_set *, enum hash_alg)
+
+
+
+
+
+=head2 Destructors 
+
+    
+=head1 AUTHOR
+
+Hagen Paul Pfeifer <hagen aatt jauu ddoott org>
+
+=head1 DATE 
+
+Sun Sep 02 CEST 2007 

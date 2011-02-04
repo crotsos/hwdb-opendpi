@@ -1,0 +1,70 @@
+LibHashIsh README
+==============================================================================
+Hagen Paul Pfeifer <hagen@jauu.net>
+
+
+Content:
+  1. Installation
+  2. Fast Usage
+  3. LibHashIsh Options
+
+
+
+1. Installation
+------------------------------------------------------------------------------
+
+  ./configure
+  make
+  make test
+  su
+  make install
+
+
+
+2. Fast Usage
+------------------------------------------------------------------------------
+
+The following example demonstrate a really trivial but good example how
+to use libhashish. The are really a bunch of other usages, but for the normal
+case this standard call is sufficing:
+
+
+ ,-----:: test.c ::
+|
+| #include <libhashish.h>
+| 
+| int main(void) {
+| 	hi_handle_t *hi_handle;
+|   char *key = "23";
+|   char *data = "data element";
+|   char *data_ptr;
+| 
+| 	hi_init_str(&hi_handle, TABLE_SIZE);
+| 
+| 	ret = hi_insert_str(hi_handle, key, data);
+| 
+|   hi_get_str(hi_handle, key, &data_ptr);
+| 
+|   fprintf(stdout, "Key: %s Data: %s\n", key, data_ptr);
+| 
+| 	hi_fini(hi_handle);
+| 
+|   return 0;
+| }
+|
+ `--------------
+
+
+
+Compile with gcc:
+
+gcc -Wall -c -o test.o test.c
+gcc -Wall test.o -lm -lhashish -o test
+
+
+
+
+3. LibHashIsh Options
+------------------------------------------------------------------------------
+
+See Doxygen documentation or use the source (should[tm] be good commented).

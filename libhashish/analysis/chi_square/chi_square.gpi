@@ -1,0 +1,46 @@
+set terminal postscript eps enhanced color "Times" 25
+
+set output "chi_square.eps"
+
+set title "{/Symbol c}^2 Test - String" font "Times-Roman,30"
+
+set style line 99 linetype 1 linecolor rgb "#999999" lw 2
+set key right top
+set key box linestyle 99
+set key spacing 1.2
+
+set grid xtics ytics mytics
+
+set size 2
+
+set ylabel "{/Symbol c}^2"
+set xlabel "Iterations"
+
+set style line 1 linetype 1 linecolor rgb "#C03030" lw 10
+set style line 2 linetype 1 linecolor rgb "#F5AF4E" lw 10
+set style line 3 linetype 1 linecolor rgb "#334AA0" lw 10
+set style line 4 linetype 1 linecolor rgb "#607830" lw 10
+set style line 5 linetype 1 linecolor rgb "#4C70AD" lw 10
+set style line 6 linetype 1 linecolor rgb "#9913AD" lw 10
+set style line 7 linetype 1 linecolor rgb "#ee70ee" lw 10
+set style line 8 linetype 1 linecolor rgb "#27430e" lw 10
+set style line 9 linetype 1 linecolor rgb "#73f26a" lw 10
+
+plot \
+  "jenkins2.data" using 1:2 title "Measurement Jenkins2" smooth bezier ls 1,\
+  "jenkins3.data" using 1:2 title "Measurement Jenkins3" smooth bezier ls 3
+
+!epstopdf --outfile=chi_square.pdf chi_square.eps
+!rm -rf chi_square.eps
+
+set term x11
+set size 1
+replot
+pause 5
+
+#  "hsieh.data" using 1:2 title "Measurement Hsieh (String)" smooth bezier ls 2,\
+#  "goulburn.data" using 1:2 title "Measurement Goulburn (String)" smooth bezier ls 4,\
+#  "jenkins2.data" using 1:3 title "Maximum (String)" smooth bezier ls 8
+#  "phong.data" using 1:2 title "Measurement Phong" smooth bezier ls 3,\
+#  "torek.data" using 1:2 title "Measurement Torek" smooth bezier ls 5,\
+#  "sha1.data" using 1:2 title "Measurement SHA1" smooth bezier ls 6,\

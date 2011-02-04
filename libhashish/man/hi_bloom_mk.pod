@@ -1,0 +1,68 @@
+=head1 NAME
+
+hi_bloom_init_mk - initialize bloom filter structures for further use
+
+
+=head1 SYNOPSIS
+
+ #include <libhashish.h>
+
+ int hi_bloom_init_mk(hi_bloom_handle_t **bh, uint32_t bits, uint32_t no_hashfunctions);
+
+=head1 ARGUMENTS
+
+
+hi_bloom_handle_t **bh
+is a pointer to the newly created data structure. A value result argument
+See the example section below if you aren't familar with this concept.
+
+unsigned bits
+number of bits for the new created bit vector (e.g. 256).
+The value must be an multiple of 8 (bytes are the atomic unit).
+
+unsigned no_hashfunctions
+number of employed hash functions (e.g. jenkins, hsieh, ...)
+The chronological order is an internal issue, the user (you)
+had no influence to change the order.
+
+=head1 DESCRIPTION
+
+hi_bloom_init_mk initialize the main data structure for
+bloom filter.
+
+
+=head1 RETURN VALUE
+
+hi_bloom_init_mk return 0 on success or an value less then 0 if
+an error occurred. Use hi_strerror(int error_code) to get a human
+readable error string. If the return value is HI_ERR_SYSTEM then an
+system error occured (e.g. out of mem) and errno is set to the corresponding
+value
+
+=head1 EXAMPLE
+
+=pod
+
+ #include <libhashish.h>
+
+ int main(void)
+ {
+
+   hi_bloom_handle_t *bh;
+
+   hi_init_bloom_filter(&bh, 256, 3);
+   hi_bloom_filter_add_str(bh, "23");
+   hi_bloom_fini_filter(bh);
+
+   return 0;
+ }
+
+=cut
+
+=head1 AUTHOR
+
+Hagen Paul Pfeifer
+
+=head1 DATE 
+
+Sun Sep 02 CEST 2007 

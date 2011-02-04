@@ -2,10 +2,11 @@ all: hwdb-opendpi
 
 hwdb-opendpi: main.o srpc.o tslist.o endpoint.o ctable.o stable.o crecord.o mem.o
 	libtool --mode=link gcc -g -O -o hwdb-opendpi opendpi/src/lib/libopendpi.la -lpcap \
-	-lpthread main.o srpc.o tslist.o endpoint.o ctable.o stable.o crecord.o mem.o 
+	-lpthread main.o srpc.o tslist.o endpoint.o ctable.o stable.o crecord.o mem.o \
+	-lm libhashish/lib/libhashish.a
 
 main.o: main.c config.h srpcdefs.h
-	gcc -Iopendpi/src/include/ -g -c main.c
+	gcc -Iopendpi/src/include/ -Ilibhashish/include/ -g -c main.c
 
 srpc.o: srpc.c srpc.h 
 	gcc -g -c srpc.c

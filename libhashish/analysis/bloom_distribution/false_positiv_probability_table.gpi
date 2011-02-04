@@ -1,0 +1,24 @@
+set terminal postscript eps enhanced color "Times" 30
+set palette rgbformulae 22,13,-31
+set title "Bloom Filter False Positiv Probability"
+
+set xrange [1:128]
+set yrange [1:22]
+
+set xlabel "n (inserted elements)"
+set ylabel "k (number of hash functions)"
+set zlabel "Probability" offset 4, 6
+
+set dgrid3d
+set pm3d at b
+set output "false_positiv_probability_table.eps"
+set size 2.5
+set view 69,330
+splot "false_positiv_probability_table.data" title "static bitvector size (m := 128)" with lines
+!epstopdf --outfile=false_positiv_probability_table.pdf false_positiv_probability_table.eps
+!rm -rf false_positiv_probability_table.eps
+
+#set term x11
+#set size 1
+#replot
+#pause 3
