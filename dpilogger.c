@@ -29,6 +29,8 @@ enum capture_type {
 
 #define			MAX_OSDPI_IDS			50000
 #define			MAX_OSDPI_FLOWS			200000
+#define CLEANUP_TIMEOUT 10
+#define CONNECTION_TIMEOUT 10
 
 // id tracking
 struct osdpi_id {
@@ -45,7 +47,7 @@ struct osdpi_flow {
   u8 protocol;
   uint32_t byte_count;
   uint32_t pkt_count;
-  uint32_t last_pkt;
+  uint32_t first_pkt, last_pkt;
   struct ipoque_flow_struct *ipoque_flow;
   
   // result only, not used for flow identification
@@ -69,23 +71,8 @@ struct str_cfg {
 
   struct ipoque_detection_module_struct *ipoque_struct;
 
-  // results
-/*   uint64_t raw_packet_count; */
-/*   uint64_t ip_packet_count; */
-/*   uint64_t total_bytes; */
-/*   uint64_t protocol_counter[IPOQUE_MAX_SUPPORTED_PROTOCOLS + 1]; */
-/*   uint64_t protocol_counter_bytes[IPOQUE_MAX_SUPPORTED_PROTOCOLS + 1]; */
-  
-/*   struct osdpi_id *osdpi_ids; */
-/*   uint32_t osdpi_id_count; */
-/*   uint32_t size_id_struct; */
-
-/*   struct osdpi_flow *osdpi_flows; */
-/*   uint32_t size_flow_struct; */
-/*   uint32_t osdpi_flow_count; */
-
   ///a hast structure to store state
-  hi_handle_t *hi_handle_ip;
+  hi_handle_t *hi_handle_ip; 
   hi_handle_t *hi_handle_flows;
 
 };
@@ -172,6 +159,36 @@ static void
   }
 }
 
+void
+garbadge_collect_osdpi_flows(uint32_t time ) {
+  hi_iterator_t *iter;
+  struct osdpi_flow *data;
+  char *key;
+  uint32_t len;
+  int res;
+
+  printf("hash elements: %lu\n", hi_no_objects(obj_cfg.hi_handle_flows));
+
+  if( (res = hi_iterator_create(obj_cfg.hi_handle_flows, &iter)) != HI_SUCCESS) {
+    printf("Failed to init iterator: %s(%d)\n", hi_strerror(res), res);
+    return;
+  }
+
+  while(hi_iterator_getnext(iter, (void **)&data, (void **)&key, &len) == HI_SUCCESS ) {
+    if( time - data->last_pkt > CONNECTION_TIMEOUT) {
+      printf(">>>>>>>>> flow %s %d : %d %d %d %ld\n", key, len, data->byte_count, data->pkt_count, data->last_pkt);
+      hi_remove_str(obj_cfg.hi_handle_flows, key, &data);
+      free(data->ipoque_flow);
+      free(data);
+      //      printf("flow timed out\n");
+    } else {
+      printf("flow %s %d : %lu %lu %lu\n", key, len, data->byte_count, data->pkt_count, data->last_pkt);
+    }
+  }
+
+   hi_iterator_fini(iter);
+}
+
 struct osdpi_flow *
 get_osdpi_flow(const struct packet_header *hdr, 
 					 u16 ipsize, uint32_t time)
@@ -181,9 +198,19 @@ get_osdpi_flow(const struct packet_header *hdr,
   struct in_addr addr;
   u16 lower_port, upper_port;
   struct osdpi_flow *data;
+  static uint32_t timer= 0;
+
+  if(timer == 0) {
+    timer = time;
+  } else if(time - timer > CLEANUP_TIMEOUT) {
+    printf("Cleaning up state\n");
+   garbadge_collect_osdpi_flows(time);
+    timer =time;
+  }
 
   //XXX.XXX.XXX.XXX:XXXXX-XXX.XXX.XXX.XXX:XXXXX-XXX
-  char flow_key[50];
+  char *flow_key;
+  flow_key = malloc(50*sizeof(char));
 
   if (hdr->ip->saddr < hdr->ip->daddr) {
     addr.s_addr = hdr->ip->saddr;
@@ -199,27 +226,28 @@ get_osdpi_flow(const struct packet_header *hdr,
   
   if (hdr->ip->protocol == 6) { // tcp
     if (hdr->ip->saddr < hdr->ip->daddr) 
-      snprintf(flow_key, 50, "%x:%05d-%x:%05d-TCP", lower_ip, ntohs(hdr->tcp->source),
+      snprintf(flow_key, 50, "%s:%05d-%s:%05d-TCP", lower_ip, ntohs(hdr->tcp->source),
 	       upper_ip, ntohs(hdr->tcp->dest));
     else
-      snprintf(flow_key, 50, "%x:%05d-%x:%05d-TCP", lower_ip, ntohs(hdr->tcp->dest),
+      snprintf(flow_key, 50, "%s:%05d-%s:%05d-TCP", lower_ip, ntohs(hdr->tcp->dest),
 	       upper_ip, ntohs(hdr->tcp->source));
   } else if (hdr->ip->protocol == 17) {// udp
     if (hdr->ip->saddr < hdr->ip->daddr) 
-      snprintf(flow_key, 50, "%x:%05d-%x:%05d-UDP", lower_ip, ntohs(hdr->tcp->source),
-	       upper_ip, ntohs(hdr->tcp->dest));
+      snprintf(flow_key, 50, "%s:%05d-%s:%05d-UDP", lower_ip, ntohs(hdr->udp->source), 
+	       upper_ip, ntohs(hdr->udp->dest));
     else
-      snprintf(flow_key, 50, "%x:%05d-%x:%05d-UDP", lower_ip, ntohs(hdr->tcp->dest),
-	       upper_ip, ntohs(hdr->tcp->source));
+      snprintf(flow_key, 50, "%s:%05d-%s:%05d-UDP", lower_ip, ntohs(hdr->udp->dest), 
+	       upper_ip, ntohs(hdr->udp->source));
     
   } 
   
-  res = hi_get_str(obj_cfg.hi_handle_ip, flow_key, (void **)&data);  
+  res = hi_get_str(obj_cfg.hi_handle_flows, flow_key, (void **)&data);  
   //if state found retrurn object
   if(res == HI_ERR_SUCCESS) {
     data->byte_count += ipsize;
     data->pkt_count++;
-    data->last_pkt += time;
+    data->last_pkt = time;
+    //printf("Flow %s found with pkts %d\n", flow_key, data->pkt_count);
     return data;
   } else {
     //if file not found create new state
@@ -229,15 +257,17 @@ get_osdpi_flow(const struct packet_header *hdr,
       exit(1);
     }
     
+    //    printf("Flow %s created\n", flow_key);
     data->byte_count = ipsize;
     data->pkt_count = 1;
+    data->first_pkt = time;
     data->last_pkt = time;
     data->ipoque_flow = calloc(1, ipoque_detection_get_sizeof_ipoque_flow_struct());
     if(data->ipoque_flow == NULL) {
       perror("malloc osdpi_id->ipoque_id");
       exit(1);
     }
-    hi_insert_str(obj_cfg.hi_handle_ip, flow_key, data);
+    hi_insert_str(obj_cfg.hi_handle_flows, flow_key, data);
     return  data;
   }
 }
@@ -268,7 +298,6 @@ process_packet(u_char *args, const struct pcap_pkthdr* pkthdr, const u_char* pac
   dst = get_id((u8 *) & hdr.ip->daddr);
 
   flow = get_osdpi_flow(&hdr, pkthdr->caplen - ETHER_HDR_LEN, pkthdr->ts.tv_sec);
-
   if (flow != NULL) {
     ipq_flow = flow->ipoque_flow;
   }
@@ -279,12 +308,12 @@ process_packet(u_char *args, const struct pcap_pkthdr* pkthdr, const u_char* pac
     protocol = ipoque_detection_process_packet(obj_cfg.ipoque_struct, ipq_flow, (uint8_t *) hdr.ip, 
 					       pkthdr->caplen - ETHER_HDR_LEN, time, src, dst);
     
-    if(hdr.ip->protocol == 6) //TCP packet
-      printf("New packet received: %s:%d-%s:%d-TCP >>> %s\n", src_ip, ntohs(hdr.tcp->source), 
-	     dst_ip,ntohs(hdr.tcp->dest),protocol_long_str[protocol]);
-    else
-      printf("New packet received: %s:%d-%s:%d-UDP >>>> %s\n", src_ip, ntohs(hdr.udp->source), 
-	     dst_ip, ntohs(hdr.udp->dest),protocol_long_str[protocol]);
+/*     if(hdr.ip->protocol == 6) //TCP packet */
+/*       //      printf("New packet received: %s:%d-%s:%d-TCP >>> %s\n", src_ip, ntohs(hdr.tcp->source),  */
+/*       //	     dst_ip,ntohs(hdr.tcp->dest),protocol_long_str[protocol]); */
+/*     else */
+/*       printf("New packet received: %s:%d-%s:%d-UDP >>>> %s\n", src_ip, ntohs(hdr.udp->source),  */
+/* 	     dst_ip, ntohs(hdr.udp->dest),protocol_long_str[protocol]); */
   } else {
     static u8 frag_warning_used = 0;
     if (frag_warning_used == 0) {
@@ -302,6 +331,8 @@ process_packet(u_char *args, const struct pcap_pkthdr* pkthdr, const u_char* pac
  */
 void
 init_cfg() {
+  int res;
+
   obj_cfg.verbose = 0;
   obj_cfg.type = DEVICE_CAPTURE;
   strcpy(obj_cfg.dev_name, "eth0");
@@ -309,8 +340,14 @@ init_cfg() {
   obj_cfg.ipoque_struct= NULL;
 
   hi_init_str(&obj_cfg.hi_handle_ip, 93563);
-  hi_init_str(&obj_cfg.hi_handle_flows, 93563);
+
+  if( (res = hi_init_str(&obj_cfg.hi_handle_flows, 93563)) != HI_SUCCESS) {
+    printf("Failed to init flow_hasr: %s\n", hi_strerror(res));
+    exit(1);
+  }
+
 };
+
 
 /*
  * Parse the command line parameters and modify appropriately the config object
@@ -432,7 +469,7 @@ init() {
   if(strlen(obj_cfg.pcap_filter) > 0) {
     /* Lets try and compile the program.. non-optimized */
     if(pcap_compile(obj_cfg.pcap_dev, &fp, obj_cfg.pcap_filter, 0, 0) == -1) {
-      fprintf(stderr, "Error calling pcap_compile\n");
+      fprintf(stderr, "Error calling pcap_compile: $%s %s\n", obj_cfg.pcap_filter, pcap_geterr(obj_cfg.pcap_dev));
       exit(1);
     }
     

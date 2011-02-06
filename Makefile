@@ -1,12 +1,20 @@
-all: hwdb-opendpi
+all: dpilogger dpipersist
 
-hwdb-opendpi: main.o srpc.o tslist.o endpoint.o ctable.o stable.o crecord.o mem.o
-	libtool --mode=link gcc -g -O -o hwdb-opendpi opendpi/src/lib/libopendpi.la -lpcap \
-	-lpthread main.o srpc.o tslist.o endpoint.o ctable.o stable.o crecord.o mem.o \
+dpilogger: dpilogger.o srpc.o tslist.o endpoint.o ctable.o stable.o crecord.o mem.o
+	libtool --mode=link gcc -g -O -o dpilogger opendpi/src/lib/libopendpi.la -lpcap \
+	-lpthread dpilogger.o srpc.o tslist.o endpoint.o ctable.o stable.o crecord.o mem.o \
 	-lm libhashish/lib/libhashish.a
 
-main.o: main.c config.h srpcdefs.h
-	gcc -Iopendpi/src/include/ -Ilibhashish/include/ -g -c main.c
+dpipersist: dpipersist.o srpc.o tslist.o endpoint.o ctable.o stable.o crecord.o mem.o
+	libtool --mode=link gcc -g -O -o dpilogger opendpi/src/lib/libopendpi.la -lpcap \
+	-lpthread dpipersist.o srpc.o tslist.o endpoint.o ctable.o stable.o crecord.o mem.o \
+	-lm libhashish/lib/libhashish.a
+
+dpilogger.o: dpilogger.c config.h srpcdefs.h
+	gcc -Iopendpi/src/include/ -Ilibhashish/include/ -g -c dpilogger.c
+
+dpipersist.o: dpipersist.c config.h srpcdefs.h
+	gcc -Iopendpi/src/include/ -Ilibhashish/include/ -g -c dpipersist.c
 
 srpc.o: srpc.c srpc.h 
 	gcc -g -c srpc.c
@@ -31,7 +39,7 @@ crecord.o: stable.c crecord.h ctable.h mem.h endpoint.h stable.h
 	gcc -g -c crecord.c
 
 clean:
-	rm -rf *~ *.o hwdb-opendpi .libs/
+	rm -rf *~ *.o dpilogger .libs/
 
 debug:
-	libtool --mode=execute gdb hwdb-opendpi
+	libtool --mode=execute gdb dpilogger
